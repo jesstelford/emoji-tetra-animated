@@ -41,3 +41,17 @@ Will give output like:
 ```
 
 And will create an optimized gif animation, saved as **`anim.gif`**.
+
+### Troubleshooting
+
+Try running it like so:
+
+```
+$ DEBUG=tetra node index.js <tweetId>
+```
+
+Want _more_ debug info? You asked for it...
+
+```
+$ DEBUG=* node index.js <tweetId>
+```

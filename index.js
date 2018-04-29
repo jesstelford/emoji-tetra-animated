@@ -2,7 +2,7 @@ const ora = require('ora');
 const path = require('path');
 const puppeteer = require('puppeteer');
 const promiseRetry = require('promise-retry')
-const debug = require('debug')('scraper');
+const debug = require('debug')('tetra');
 
 const generateGif = require('./generate-gif');
 
