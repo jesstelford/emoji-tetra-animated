@@ -1,48 +1,52 @@
 const ora = require('ora');
 const path = require('path');
 const puppeteer = require('puppeteer');
-const promiseRetry = require('promise-retry')
+const promiseRetry = require('promise-retry');
 const debug = require('debug')('tetra');
 
 const generateGif = require('./generate-gif');
 
-const timeout = 1000
-const iv = 100
+const timeout = 1000;
+const iv = 100;
 
-const waitForNavigationAndContext = (page, maxTimeout = 120000) => promiseRetry(async (retry, number) => {
-  try {
-    await page.evaluate(iv => {
-      return new Promise((resolve, reject) => {
-        checkReadyState()
+const waitForNavigationAndContext = (page, maxTimeout = 120000) =>
+  promiseRetry(
+    async (retry, number) => {
+      try {
+        await page.evaluate(
+          iv =>
+            new Promise((resolve, reject) => {
+              checkReadyState();
 
-        function checkReadyState() {
-          if (document.readyState === 'complete') {
-            resolve()
-          }
-          else {
-            setTimeout(checkReadyState, iv)
-          }
+              function checkReadyState() {
+                if (document.readyState === 'complete') {
+                  resolve();
+                } else {
+                  setTimeout(checkReadyState, iv);
+                }
+              }
+            }),
+          iv,
+        );
+      } catch (err) {
+        if (err.message.indexOf('Cannot find context with specified id undefined') !== -1) {
+          retry();
+        } else {
+          throw err;
         }
-      })
-    }, iv)
-  } catch (err) {
-    if (err.message.indexOf('Cannot find context with specified id undefined') !== -1) {
-      retry()
-    } else {
-      throw err
-    }
-  }
-}, { retries: Math.ceil(maxTimeout / timeout), minTimeout: timeout, maxTimeout: timeout })
+      }
+    },
+    { retries: Math.ceil(maxTimeout / timeout), minTimeout: timeout, maxTimeout: timeout },
+  );
 
-const nextTweetInThread = async (page, author) => {
-  return await page.evaluate(selector => {
+const nextTweetInThread = async (page, author) =>
+  await page.evaluate((selector) => {
     const element = document.querySelector(selector);
     if (!element) {
       return null;
     }
     return element.dataset.tweetId;
   }, `.permalink-replies.replies-to [data-tweet-id]${author ? `[data-screen-name="${author}"]` : ''}`);
-}
 
 /**
  * Takes a screenshot of a DOM element on the page, with optional padding.
@@ -69,16 +73,20 @@ const screenshotTweet = async (page, outDir, tweetId, author) => {
   const screenshotPath = path.join(outDir, `tweet_${tweetId}.png`);
   const URL = `https://twitter.com/i/web/status/${tweetId}`;
   debug('going to %s', URL);
-  await page.goto(URL, {waitUntil: 'networkidle2'});
-  await waitForNavigationAndContext(page, 60000)
+  await page.goto(URL, { waitUntil: 'networkidle2' });
+  await waitForNavigationAndContext(page, 60000);
   debug('%s loaded', URL);
 
   debug('cleaning up DOM');
 
   const tweetSelector = `[data-tweet-id="${tweetId}"]`;
 
-  const redirectToTweetId = await page.evaluate(selector => {
-    if (document.querySelector(`${selector} .tweet-text`).innerText.indexOf('Game continues in new thread') === -1) {
+  const redirectToTweetId = await page.evaluate((selector) => {
+    if (
+      document
+        .querySelector(`${selector} .tweet-text`)
+        .innerText.indexOf('Game continues in new thread') === -1
+    ) {
       return null;
     }
 
@@ -95,22 +103,23 @@ const screenshotTweet = async (page, outDir, tweetId, author) => {
     return screenshotTweet(page, outDir, redirectToTweetId, author);
   }
 
-  await page.evaluate((selector, tweetId) => {
-    const tweetElement = document.querySelector(selector);
-    if (!tweetElement) {
-      return;
-    }
-    [
-      tweetElement.querySelector('.tweet-details-fixer'),
-      tweetElement.querySelector('.stream-item-footer'),
-      tweetElement.querySelector('.content .follow-bar'),
-      tweetElement.querySelector('.content .ProfileTweet-action'),
-    ]
-      .filter(Boolean)
-      .forEach(element => element.remove());
+  await page.evaluate(
+    (selector, tweetId) => {
+      const tweetElement = document.querySelector(selector);
+      if (!tweetElement) {
+        return;
+      }
+      [
+        tweetElement.querySelector('.tweet-details-fixer'),
+        tweetElement.querySelector('.stream-item-footer'),
+        tweetElement.querySelector('.content .follow-bar'),
+        tweetElement.querySelector('.content .ProfileTweet-action'),
+      ]
+        .filter(Boolean)
+        .forEach(element => element.remove());
 
-    const styleNode = document.createElement('style');
-    styleNode.innerHTML = `
+      const styleNode = document.createElement('style');
+      styleNode.innerHTML = `
       .permalink-tweet-container::before, .permalink-tweet-container::after { visibility: hidden; }
       .permalink .permalink-tweet { padding-top: 11px !important; padding-bottom: 30px !important; height: 510px !important; width: 310px !important; }
       ${selector}:after {
@@ -122,19 +131,19 @@ const screenshotTweet = async (page, outDir, tweetId, author) => {
         opacity: 0.1;
       }
     `;
-    document.body.appendChild(styleNode);
-  }, tweetSelector, tweetId);
+      document.body.appendChild(styleNode);
+    },
+    tweetSelector,
+    tweetId,
+  );
 
   debug('DOM cleaned');
 
-  await screenshotDOMElement(
-    page,
-    {
-      outPath: screenshotPath,
-      selector: `[data-tweet-id="${tweetId}"]`,
-      padding: 0
-    }
-  );
+  await screenshotDOMElement(page, {
+    outPath: screenshotPath,
+    selector: `[data-tweet-id="${tweetId}"]`,
+    padding: 0,
+  });
 
   debug('screenshot captured to %s', screenshotPath);
 
@@ -146,7 +155,7 @@ const screenshotTweet = async (page, outDir, tweetId, author) => {
     nextTweetId,
     screenshotPath,
   };
-}
+};
 
 async function* screenshotTwitterThread(page, outDir, startId, author, limit = Infinity) {
   let count = 0;
@@ -173,16 +182,15 @@ function cliTextForTweet(tweetId) {
 
 try {
   (async () => {
-
     const spinner = ora('Setting up Headless Chrome').start();
 
     const browser = await puppeteer.launch();
     const page = await browser.newPage();
 
     // Adjustments particular to this page to ensure we hit desktop breakpoint.
-    page.setViewport({width: 1000, height: 1200, deviceScaleFactor: 1});
+    page.setViewport({ width: 1000, height: 1200, deviceScaleFactor: 1 });
 
-    const firstTweetId = process.argv[2];// eg; 989912736971636736
+    const firstTweetId = process.argv[2]; // eg; 989912736971636736
 
     if (!firstTweetId) {
       throw new Error('Must provide a tweet ID to get started: node index.js <tweetId>');
@@ -190,7 +198,12 @@ try {
 
     spinner.succeed().start(cliTextForTweet(firstTweetId));
 
-    for await (const screenshotInfo of screenshotTwitterThread(page, 'screens', firstTweetId , 'EmojiTetra')) {
+    for await (const screenshotInfo of screenshotTwitterThread(
+      page,
+      'screens',
+      firstTweetId,
+      'EmojiTetra',
+    )) {
       spinner.succeed(`Saved screenshot for tweet ${screenshotInfo.tweetId}`);
       if (screenshotInfo.nextTweetId) {
         spinner.start(cliTextForTweet(screenshotInfo.nextTweetId));

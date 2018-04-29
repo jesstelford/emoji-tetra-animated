@@ -12,7 +12,27 @@
     "puppeteer": "^1.3.0",
     "supports-color": "^5.4.0"
   },
+  "devDependencies": {
+    "@jesstelford/scripts": "^1.0.5",
+    "husky": "^1.0.0-rc.2",
+    "lint-staged": "^7.0.5"
+  },
+  "config": {
+    "source": "src/**/*.js"
+  },
+  "lint-staged": {
+    "src/**/*.js": [
+      "jesstelford-scripts lint list"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
+  },
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "lint": "jesstelford-scripts lint",
+    "lint:fix": "jesstelford-scripts lint fix"
   }
 }
