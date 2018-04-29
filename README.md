@@ -23,7 +23,7 @@ $ yarn
 ## Running it
 
 ```
-$ node index.js 989912736971636736
+$ yarn start 989912736971636736
 ```
 
 _(where `989912736971636736` is the ID of the first tweet in a game thread)_
@@ -31,7 +31,7 @@ _(where `989912736971636736` is the ID of the first tweet in a game thread)_
 Will give output like:
 
 ```
-❯ node index.js
+❯ yarn start
 ✔ Setting up Headless Chrome
 ✔ Saved screenshot for tweet 989912736971636736
 ...
@@ -47,11 +47,11 @@ And will create an optimized gif animation, saved as **`anim.gif`**.
 Try running it like so:
 
 ```
-$ DEBUG=tetra node index.js <tweetId>
+$ DEBUG=tetra yarn start <tweetId>
 ```
 
 Want _more_ debug info? You asked for it...
 
 ```
-$ DEBUG=* node index.js <tweetId>
+$ DEBUG=* yarn start <tweetId>
 ```
