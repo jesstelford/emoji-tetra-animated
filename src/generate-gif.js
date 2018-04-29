@@ -1,7 +1,7 @@
 const execa = require('execa');
 const gifsicle = require('gifsicle');
 
-module.export = () =>
+module.exports = () =>
   execa
     .shell('gifski -o anim.gif --fps 3 --quality=100 screens/*.png', { stdio: 'inherit' })
     .then((result) => {
