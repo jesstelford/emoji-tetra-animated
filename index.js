@@ -63,33 +63,6 @@ async function screenshotDOMElement(page, opts = {}) {
   return await element.screenshot({
     path: outPath,
   });
-
-  /*
-  debug('Getting bounding rect for %s', selector);
-  const rect = await page.evaluate(selector => {
-    const element = document.querySelector(selector);
-    if (!element)
-      return null;
-    const {x, y, width, height} = element.getBoundingClientRect();
-    return {left: x, top: y, width, height, id: element.id};
-  }, selector);
-  debug('Got bounding rect %o', rect);
-
-  if (!rect) {
-    throw Error(`Could not find element that matches selector: ${selector}.`);
-  }
-
-  debug('Taking screenshot, and saving to %s', outPath);
-  return await page.screenshot({
-    path: outPath,
-    clip: {
-      x: rect.left - padding,
-      y: rect.top - padding,
-      width: rect.width + padding * 2,
-      height: rect.height + padding * 2
-    }
-  });
-  */
 }
 
 const screenshotTweet = async (page, outDir, tweetId, author) => {
