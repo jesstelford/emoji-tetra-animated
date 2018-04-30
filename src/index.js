@@ -1,223 +1,233 @@
 const ora = require('ora');
 const path = require('path');
-const puppeteer = require('puppeteer');
-const promiseRetry = require('promise-retry');
-const debug = require('debug')('tetra');
+const Twit = require('twit');
+const cuid = require('cuid');
+const delay = require('delay');
+const firebase = require('firebase-admin');
 
+const scrape = require('./scrape');
 const generateGif = require('./generate-gif');
+const firebaseKey = require('../firebase-emojitetragif-admin.json');
 
-const timeout = 1000;
-const iv = 100;
+const EMJOI_TETRA_TWITTER_ID = '842095599100997636';
+const UNIQUE_INSTANCE_ID = process.env.NOW ? `${process.env.NOW_URL}-${cuid()}` : 'test';
 
-const waitForNavigationAndContext = (page, maxTimeout = 120000) =>
-  promiseRetry(
-    async (retry, number) => {
-      try {
-        await page.evaluate(
-          iv =>
-            new Promise((resolve, reject) => {
-              checkReadyState();
+const words = [
+  'Progress so far',
+  'Keep at it, friends!',
+  'Progress is being made',
+  'Hmm, I wonder how many rocketships we can get? 🤔🚀',
+  'Up up down down left right left right b a',
+  "Oh, we're so close!",
+  'I can feel some points coming on!',
+  'What a game so far!',
+  'This is nailbiting',
+  'Hand-drawing all those emojis must take _forever_!',
+  'Ah, strategy at its finest',
+  'The wisdom of the crowd',
+  "Who'd have thought MMO Twitter games were so much fun!?",
+  'Eeek, watch out for that next one',
+  'Maybe we should put our heads together on this one?',
+  "Awww, they're all so cute!",
+  'tetra /ˈtɛtrə/ (noun): a small tropical freshwater fish that is typically brightly coloured. Native to Africa and America, many tetras are popular in aquaria.',
+  "Don't tell @RikerGoogling about this one!",
+  'Starting to see a pattern here',
+  "We've got this!",
+  'What a team!',
+];
 
-              function checkReadyState() {
-                if (document.readyState === 'complete') {
-                  resolve();
-                } else {
-                  setTimeout(checkReadyState, iv);
-                }
-              }
-            }),
-          iv,
-        );
-      } catch (err) {
-        if (err.message.indexOf('Cannot find context with specified id undefined') !== -1) {
-          retry();
-        } else {
-          throw err;
-        }
-      }
-    },
-    { retries: Math.ceil(maxTimeout / timeout), minTimeout: timeout, maxTimeout: timeout },
-  );
+console.log({ UNIQUE_INSTANCE_ID });
 
-const nextTweetInThread = async (page, author) =>
-  await page.evaluate((selector) => {
-    const element = document.querySelector(selector);
-    if (!element) {
-      return null;
-    }
-    return element.dataset.tweetId;
-  }, `.permalink-replies.replies-to [data-tweet-id]${author ? `[data-screen-name="${author}"]` : ''}`);
+const spinner = ora();
 
-/**
- * Takes a screenshot of a DOM element on the page, with optional padding.
- */
-async function screenshotDOMElement(page, opts = {}) {
-  const padding = 'padding' in opts ? opts.padding : 0;
-  const outPath = 'outPath' in opts ? opts.outPath : null;
-  const selector = opts.selector;
+const twitter = new Twit({
+  consumer_key: process.env.TWITTER_CONSUMER_KEY,
+  consumer_secret: process.env.TWITTER_CONSUMER_SECRET,
+  access_token: process.env.TWITTER_ACCESS_TOKEN,
+  access_token_secret: process.env.TWITTER_ACCESS_TOKEN_SECRET,
+  timeout_ms: 60 * 1000, // optional HTTP request timeout to apply to all requests.
+});
 
-  if (!selector) {
-    throw new Error('Please provide a selector.');
+firebase.initializeApp({
+  credential: firebase.credential.cert(firebaseKey),
+  databaseURL: 'https://emojitetragif.firebaseio.com',
+});
+
+const database = firebase.database();
+const lastHandledIdDbRef = database.ref(`bot/${UNIQUE_INSTANCE_ID}/lastHandledId`);
+
+(async function () {
+  // Loop forever
+  for await (const result of continuousGifGenerator()) {
+    // with 60s gap between runs
+    await delay(60000);
   }
+}());
 
-  debug('Getting element for selector %s', selector);
-  const element = await page.$(selector);
-
-  debug('Taking screenshot of element %s, and saving to %s', selector, outPath);
-  return await element.screenshot({
-    path: outPath,
-  });
+// async generator to avoid recursion stack overflow
+async function* continuousGifGenerator() {
+  while (true) {
+    yield await generateLatestGif();
+  }
 }
 
-const screenshotTweet = async (page, outDir, tweetId, author) => {
-  const screenshotPath = path.join(outDir, `tweet_${tweetId}.png`);
-  const URL = `https://twitter.com/i/web/status/${tweetId}`;
-  debug('going to %s', URL);
-  await page.goto(URL, { waitUntil: 'networkidle2' });
-  await waitForNavigationAndContext(page, 60000);
-  debug('%s loaded', URL);
+function generateLatestGif() {
+  spinner.start(`Getting last handled ID for instance ${UNIQUE_INSTANCE_ID}`);
 
-  debug('cleaning up DOM');
+  return new Promise((resolve) => {
+    // Retreive the last handled ID
+    lastHandledIdDbRef.once('value', async (value) => {
+      const lastHandledId = value.val();
 
-  const tweetSelector = `[data-tweet-id="${tweetId}"]`;
+      spinner.succeed(`Got last handled ID (${lastHandledId})`);
 
-  const redirectToTweetId = await page.evaluate((selector) => {
-    if (
-      document
-        .querySelector(`${selector} .tweet-text`)
-        .innerText.indexOf('Game continues in new thread') === -1
-    ) {
-      return null;
-    }
+      if (!lastHandledId) {
+        spinner.info('Unknown last handled ID, will scrape all within thread');
+      }
 
-    const quoteWrapper = document.querySelector(`${selector} .QuoteTweet [data-item-id]`);
-    if (!quoteWrapper) {
-      throw new Error(`Thought element ${selector} was a quote, but its not :/`);
-    }
+      const latestTweets = await getLatestTweet(twitter, EMJOI_TETRA_TWITTER_ID, lastHandledId);
 
-    return quoteWrapper.dataset.itemId;
-  }, tweetSelector);
-
-  if (redirectToTweetId) {
-    debug('Redirecting from %s to %s', tweetId, redirectToTweetId);
-    return screenshotTweet(page, outDir, redirectToTweetId, author);
-  }
-
-  await page.evaluate(
-    (selector, tweetId) => {
-      const tweetElement = document.querySelector(selector);
-      if (!tweetElement) {
+      if (!latestTweets) {
+        spinner.info('Nothing to do, no new tweets found');
+        resolve();
         return;
       }
-      [
-        tweetElement.querySelector('.tweet-details-fixer'),
-        tweetElement.querySelector('.stream-item-footer'),
-        tweetElement.querySelector('.content .follow-bar'),
-        tweetElement.querySelector('.content .ProfileTweet-action'),
-      ]
-        .filter(Boolean)
-        .forEach(element => element.remove());
 
-      const styleNode = document.createElement('style');
-      styleNode.innerHTML = `
-      .permalink-tweet-container::before, .permalink-tweet-container::after { visibility: hidden; }
-      .permalink .permalink-tweet { padding-top: 11px !important; padding-bottom: 30px !important; height: 510px !important; width: 310px !important; }
-      ${selector}:after {
-        content: 'twitter.com/EmojiTetra/status/${tweetId}';
-        position: absolute;
-        right: 10px;
-        bottom: 3px;
-        font-size: smaller;
-        opacity: 0.1;
+      const { id_str } = latestTweets;
+
+      if (!id_str) {
+        throw new Error(`Unable to get latest tweet since ${lastHandledId}`);
       }
-    `;
-      document.body.appendChild(styleNode);
-    },
-    tweetSelector,
-    tweetId,
-  );
 
-  debug('DOM cleaned');
+      await scrape({
+        firstTweetId: id_str,
+        lastTweetId: lastHandledId,
+        direction: 'backward',
+        spinner,
+      });
 
-  await screenshotDOMElement(page, {
-    outPath: screenshotPath,
-    selector: `[data-tweet-id="${tweetId}"]`,
-    padding: 0,
+      await generateGif(spinner);
+
+      await tweetGif(twitter, 'anim.gif', id_str, spinner);
+
+      spinner.start(`Updating lastHandleId to ${id_str} for instance ${UNIQUE_INSTANCE_ID}`);
+
+      await lastHandledIdDbRef.transaction(() => id_str);
+
+      spinner.succeed(`Updated lastHandleId to ${id_str} for instance ${UNIQUE_INSTANCE_ID}`);
+
+      resolve();
+    });
   });
+}
 
-  debug('screenshot captured to %s', screenshotPath);
+function getLatestTweet(twitter, userId, sinceId) {
+  spinner.start(`Fetching lastest tweets for @${userId} since ${sinceId}`);
 
-  const nextTweetId = await nextTweetInThread(page, author);
+  let errHandled = false;
 
-  debug('nextTweetId %s', nextTweetId);
-
-  return {
-    nextTweetId,
-    screenshotPath,
+  const opts = {
+    user_id: userId,
+    trim_user: true,
+    include_rts: false,
+    count: 100,
   };
-};
 
-async function* screenshotTwitterThread(page, outDir, startId, author, limit = Infinity) {
-  let count = 0;
-  let currentId = startId;
-  let result;
-  while (currentId && count < limit) {
-    const { nextTweetId, screenshotPath } = await screenshotTweet(page, outDir, currentId, author);
-    result = {
-      nextTweetId,
-      tweetId: currentId,
-      screenshotPath,
-    };
-    debug('yielding with %o', result);
-    yield result;
-    count++;
-    currentId = nextTweetId;
+  if (sinceId) {
+    opts.since_id = sinceId;
   }
-  debug('no nextTweetId');
+
+  // Grab all the tweets by the EmojiTetra user
+  return twitter
+    .get('statuses/user_timeline', opts)
+    .catch((err) => {
+      spinner.fail(`Failed to fetch tweets for @${userId}`);
+      errHandled = true;
+      throw err;
+    })
+    .then(({ data }) => {
+      spinner
+        .succeed(`Fetched @${userId}'s ${data.length} latest tweets`)
+        .start('Fetching replies');
+
+      // Just get the latest one
+      return data[0];
+    });
 }
 
-function cliTextForTweet(tweetId) {
-  return `Taking screenshot of tweet ${tweetId}`;
-}
-
-try {
-  (async () => {
-    const spinner = ora('Setting up Headless Chrome').start();
-
-    const browser = await puppeteer.launch();
-    const page = await browser.newPage();
-
-    // Adjustments particular to this page to ensure we hit desktop breakpoint.
-    page.setViewport({ width: 1000, height: 1200, deviceScaleFactor: 1 });
-
-    const firstTweetId = process.argv[2]; // eg; 989912736971636736
-
-    if (!firstTweetId) {
-      throw new Error('Must provide a tweet ID to get started: node index.js <tweetId>');
-    }
-
-    spinner.succeed().start(cliTextForTweet(firstTweetId));
-
-    for await (const screenshotInfo of screenshotTwitterThread(
-      page,
-      'screens',
-      firstTweetId,
-      'EmojiTetra',
-    )) {
-      spinner.succeed(`Saved screenshot for tweet ${screenshotInfo.tweetId}`);
-      if (screenshotInfo.nextTweetId) {
-        spinner.start(cliTextForTweet(screenshotInfo.nextTweetId));
+function postMediaToTwitter(twitter, filePath) {
+  return new Promise((resolve, reject) => {
+    twitter.postMediaChunked({ file_path: filePath }, (error, data) => {
+      if (error) {
+        return reject(error);
       }
-    }
+      return resolve(data);
+    });
+  });
+}
 
-    spinner.succeed('All screenshots taken').start('Cleaning up');
+function getRandomInt(max) {
+  return Math.floor(Math.random() * Math.floor(max));
+}
 
-    browser.close();
+function tweetGif(twitter, file, replyToId, spinner) {
+  spinner.start('Uploading gif to Twitter');
 
-    spinner.succeed('Headless Chrome shutdown');
+  let errHandled = false;
+  const filePath = path.join(process.cwd(), file);
 
-    await generateGif(spinner);
-  })();
-} catch (error) {
-  throw error;
+  let mediaIdStr;
+
+  // first we must post the media to Twitter
+  return postMediaToTwitter(twitter, filePath)
+    .catch((err) => {
+      spinner.fail('Failed to upload to Twitter');
+      errHandled = true;
+      throw err;
+    })
+    .then((data) => {
+      spinner.succeed('Uploaded to Twitter').start('Adding metadata to Twitter upload');
+
+      // now we can assign alt text to the media, for use by screen readers and
+      // other text-based presentations and interpreters
+      mediaIdStr = data.media_id_string;
+      const altText = 'Animation of @EmojiTetra progress so far';
+      const meta_params = { media_id: mediaIdStr, alt_text: { text: altText } };
+
+      return twitter.post('media/metadata/create', meta_params);
+    })
+    .catch((err) => {
+      if (!errHandled) {
+        spinner.fail('Failed to upload to Twitter');
+        spinner.fail('Failed to add meta data to Twitter upload');
+        errHandled = true;
+      }
+      throw err;
+    })
+    .then(({ data }) => {
+      spinner.succeed('Meta data added to Twitter upload').start('Tweeting');
+
+      // now we can reference the media and post a tweet (media will attach to the tweet)
+      const params = {
+        status: words[getRandomInt(words.length)],
+        media_ids: [mediaIdStr],
+        in_reply_to_status_id: replyToId,
+        auto_populate_reply_metadata: true,
+      };
+
+      return twitter.post('statuses/update', params);
+    })
+    .catch((err) => {
+      if (!errHandled) {
+        spinner.fail('Failed to upload to Twitter');
+        errHandled = true;
+      }
+      throw err;
+    })
+    .then(({ data }) => {
+      spinner.succeed(
+        `Tweeted: https://twitter.com/${data.user.screen_name}/status/${data.id_str}`,
+      );
+      return data;
+    });
 }

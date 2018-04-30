@@ -20,6 +20,10 @@ $ cd emoji-tetra-animated
 $ yarn
 ```
 
+Save firebase credentials to `./firebase-emojitetragif-admin.json`.
+
+Edit `.env` to setup Twitter bot creds.
+
 ## Running it
 
 ```
@@ -37,10 +41,11 @@ Will give output like:
 ...
 ✔ Saved screenshot for tweet 990617375895470080
 ✔ All screenshots taken
-✔ Done!
+...
 ```
 
-And will create an optimized gif animation, saved as **`anim.gif`**.
+This will create **`anim.gif`**, upload it to Twitter as a reply to the most
+recent @EmojiTetra post, then listen for new posts and continue uploading.
 
 ### Troubleshooting
 

@@ -18,8 +18,5 @@ module.exports = (spinner) => {
     })
     .then((result) => {
       spinner.succeed(`anim.gif optimized (${fileSize('anim.gif')})`);
-    })
-    .catch((error) => {
-      console.error('Error', error);
     });
 };
