@@ -214,9 +214,9 @@ try {
 
     browser.close();
 
-    spinner.succeed('Done!');
+    spinner.succeed('Headless Chrome shutdown');
 
-    generateGif();
+    await generateGif(spinner);
   })();
 } catch (error) {
   throw error;
