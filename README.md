@@ -1,6 +1,6 @@
 # EmojiTetra gif generator
 
-Generates a gif of the MMO Tetra game hosted by [@EmjoiTetra](https://twitter.com/EmjoiTetra):
+Generates a gif of the MMO Tetra game hosted by [@EmojiTetra](https://twitter.com/EmojiTetra):
 
 ![A gif](./anim.gif)
 
